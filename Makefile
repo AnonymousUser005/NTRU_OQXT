@@ -13,8 +13,9 @@ oqxt_falcon_search:  rawdatautil.cpp  bloom_filter.cpp AES_256GCM.c ./falcon-rou
 	$(CC) -g -o oqxt_falcon_search  rawdatautil.cpp  bloom_filter.cpp AES_256GCM.c ./falcon-round3/Extra/c/shake.c ./falcon-round3/Extra/c/common.c ./falcon-round3/Extra/c/keygen.c ./falcon-round3/Extra/c/fft.c ./falcon-round3/Extra/c/fpr.c ./falcon-round3/Extra/c/vrfy.c ./falcon-round3/Extra/c/codec.c ./falcon-round3/Extra/c/sign.c ./falcon-round3/Extra/c/rng.c ./blake3/blake_hash.cpp oqxt-falcon_search.cpp  $(CONFIG)
 
 
+
 clean_all:
-	rm -rf *.o *.gch oqxt_falcon_setup oqxt_falcon_search eidxdb_small2.csv bloom_filter.dat
+	rm -rf *.o setup *.gch oqxt_falcon_setup oqxt_falcon_search EDB_test.csv bloom_filter.dat
 	@redis-cli flushall
 	@redis-cli save
 

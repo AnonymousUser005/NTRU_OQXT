@@ -288,8 +288,8 @@ static const uint16_t iGMb[] = {
 
 
 
-string rawdb_file = "db6k.dat";
-string eidxdb_file = "EDB.csv";
+string rawdb_file = "RawDB_test.csv";
+string eidxdb_file = "EDB_test.csv";
 string bloomfilter_file = "bloom_filter.dat";
 
 
@@ -299,15 +299,25 @@ unsigned char *UIDX;
 
 
 //db6k.dat
-int N_keywords = 6043;
-int N_max_ids = 9690;
+// int N_keywords = 6043;
+// int N_max_ids = 9690;
+// int N_row_ids = N_max_ids;
+// int N_words = N_keywords;
+// int N_max_id_words = 1809;
+// int N_kw_id_max = 80901;
+
+
+//RawDB_test.csv
+int N_keywords = 5;
+int N_max_ids = 37;
 int N_row_ids = N_max_ids;
 int N_words = N_keywords;
-int N_max_id_words = 1809;
-int N_kw_id_max = 80901;
+int N_kw_id_pairs = 42;             
+int N_max_id_words = N_kw_id_pairs;
+int N_threads = 1;
 
 
-int N_threads = 16;
+
 
 int sym_block_size = N_threads*16;
 int hash_block_size = N_threads*64;
@@ -318,7 +328,7 @@ int bhash_in_block_size = N_threads*40;
 
 
 //IVs and Keys for AES-256 GCM encryption
-unsigned char iv_ki[16], iv_r[16], iv_ke[16];// iv_kz[16], iv_kx[16], iv_stag[16];
+unsigned char iv_ki[16], iv_r[16], iv_ke[16];
 unsigned char tag_r[100], tag_ec[100], tag_kz[100], tag_ks[100], tag_ki[100], tag_kx[100], tag_kt[100],tag_stag[100]; 
 unsigned char aad[16]="00000002";
 int ke, kw, ka, kec, kt, k_stag, k_stag_query, k_stag_TSetRetrieve;
@@ -792,29 +802,6 @@ int FPGA_HASH(unsigned char *msg, unsigned char *digest)
     return 0;
 }
 
-int MGDB_QUERY(unsigned char *RES, unsigned char *BIDX, unsigned char *JIDX, unsigned char *LBL)
-{
-
-
-    auto redis = Redis("tcp://127.0.0.1:6379");
-
-    ::memcpy(GL_MGDB_BIDX,BIDX,(2));
-    ::memcpy(GL_MGDB_JIDX,JIDX,(2));
-    ::memcpy(GL_MGDB_LBL,LBL,(12));
-    ::memset(GL_MGDB_RES,0x00,(49));
-        
-        
-    string s = HexToStr(MGDB_BIDX,2) + HexToStr(MGDB_JIDX,2) + HexToStr(MGDB_LBL,12);
-    auto val = redis.get(s);
-    unsigned char *t_res = reinterpret_cast<unsigned char *>(val->data());
-    DB_StrToHex49(MGDB_RES,t_res);
-
-    // ::memcpy(RES,GL_MGDB_RES,(N_threads*49));
-    ::memcpy(RES,GL_MGDB_RES,(49));
-
-    return 0;
-}
-
 
 
 
@@ -1094,21 +1081,32 @@ unsigned int BFIdxConv(unsigned char *hex_arr,unsigned int n_bits)
 }
 
 
-static void
-mk_rand_poly_oqxt(prng *p, fpr *f, unsigned logn)
-{
-	size_t u, n;
 
-	n = (size_t)1 << logn;
-	for (u = 0; u < n; u ++) {
-		int32_t x;
-		
-		x = prng_get_u8(p);
-		x = (x << 8) + prng_get_u8(p);
-		x &= 0x3FF;
-		f[u] = fpr_of(x - 512);
-	}
+int64_t extended_gcd(int64_t a, int64_t b, int64_t &x, int64_t &y) {
+    if (b == 0) {
+        x = 1;
+        y = 0;
+        return a;
+    }
+    int64_t x1, y1;
+    int64_t gcd = extended_gcd(b, a % b, x1, y1);
+    x = y1;
+    y = x1 - (a / b) * y1;
+    return gcd;
 }
+
+int64_t mod_inverse(uint16_t value, uint16_t mod) {
+    int64_t x, y;
+    int64_t gcd = extended_gcd(value, mod, x, y);
+    if (gcd != 1) {
+        std::cout << "Inverse doesn't exist for " << value << " modulo " << mod << std::endl;
+        return -1; 
+    } else {
+        return (uint16_t)(x % mod + mod) % mod;  
+    }
+}
+
+
 
 
 int main()   
@@ -1122,7 +1120,6 @@ int main()
     unsigned char *EC;
     
     unsigned char *WC;
-    unsigned char *R;
     unsigned char *YID_char;
 
     int16_t *XTAG;    
@@ -1138,7 +1135,6 @@ int main()
     KE = new unsigned char[EVP_MAX_BLOCK_LENGTH];                           //ID encryption key 32B
     KE_temp = new unsigned char[16];                                        //ID encryption key 16B
     WC = new unsigned char[N_max_id_words*16];                              //IDs with counter value (for computing randomness R) 
-    R = new unsigned char[N_max_id_words*16];                               //Random value for generating trapdoor matrix - used in generating A
     EC = new unsigned char[N_max_id_words*16];                              //Encrypted IDs
     bhash = new unsigned char[bhash_block_size];
     
@@ -1170,11 +1166,11 @@ int main()
     unsigned int bf_indices[N_HASH];
     unsigned int indices[N_HASH];
 
-    BF = new unsigned char* [N_HASH];
-    for(unsigned int k=0;k<N_HASH;++k) {
-        BF[k] = new unsigned char [MAX_BF_BIN_SIZE];
-        ::memset(BF[k],0x00,MAX_BF_BIN_SIZE);
-    }
+    // BF = new unsigned char* [N_HASH];
+    // for(unsigned int k=0;k<N_HASH;++k) {
+    //     BF[k] = new unsigned char [MAX_BF_BIN_SIZE];
+    //     ::memset(BF[k],0x00,MAX_BF_BIN_SIZE);
+    // }
 
    
 
@@ -1185,7 +1181,6 @@ int main()
     ::memset(XTAG,0x00,N_max_id_words*N_l);
     ::memset(XID,0x00,N_max_id_words*N_l);
     ::memset(WC,0x00,N_max_id_words*16);
-    ::memset(R,0x00,N_max_id_words*16);
     ::memset(EC,0x00,N_max_id_words*16);
     ::memset(bhash,0x00,bhash_block_size);
 
@@ -1205,7 +1200,6 @@ int main()
     
 
     unsigned char *wc_local = WC;
-    unsigned char *r_local = R;
     unsigned char *ec_local = EC;
     unsigned char *yid_char_local = YID_char;
 
@@ -1231,6 +1225,61 @@ int main()
     auto start_time = std::chrono::high_resolution_clock::now();
 
 
+    //  Key Generation  //
+
+    unsigned char seed[16] = {0x56,0x37,0xca,0x94,0xd5,0xe0,0xad,0x62,0x73,0x7c,0xba,0x48,0x8d,0x2d,0x4d,0xde};
+    size_t n_keygen;
+    size_t tlen_keygen = 90112;
+    size_t tlen_sign = 178176;
+    unsigned logn_keygen = 9;
+    int8_t *f, *g, *F, *G;
+    uint16_t *h, *hm, *h2, *hm2, *h_mont;
+    int16_t *sig_keygen, *s1_keygen;
+    uint8_t *tt_keygen, *tt_sign, *temp_sign;
+    inner_shake256_context sc_keygen;
+    fpr *expanded_key;             
+
+    
+
+    inner_shake256_init(&sc_keygen);
+    inner_shake256_inject(&sc_keygen, seed, sizeof(seed));
+    inner_shake256_flip(&sc_keygen);
+    
+
+    temp_sign = xmalloc(tlen_sign);
+    h_mont = (uint16_t *)temp_sign;
+    n_keygen = (size_t)1 << logn_keygen;
+
+    f = xmalloc(tlen_keygen);
+    g = f + n_keygen;
+    F = g + n_keygen;
+    G = F + n_keygen;
+    h = (uint16_t *)(G + n_keygen);
+    h2 = h + n_keygen;
+    hm = h2 + n_keygen;
+    sig_keygen = (int16_t *)(hm + n_keygen);
+    s1_keygen = sig_keygen + n_keygen;
+    tt_keygen = (uint8_t *)(s1_keygen + n_keygen);
+    tt_sign = (uint8_t *)(s1_keygen + n_keygen);
+    if (logn_keygen == 1) {
+        tt_keygen += 4;
+        tt_sign += 4;
+    }
+    for (int i = 0; i < 12; i ++) {
+        Zf(keygen)(&sc_keygen, f, g, F, G, h, logn_keygen, tt_keygen);
+    }
+    
+
+    //Public key h in NTT-Montgomery Form
+    ::memcpy(h_mont, h, n_keygen * sizeof *h_mont);
+    Zf(to_ntt_monty)(h_mont, logn_keygen);
+
+    
+    //Expanded private key for NTT operations
+    expanded_key = (fpr *)tt_sign;
+    tt_sign = (uint8_t *)expanded_key + (8 * logn_keygen + 40) * n_keygen;
+    Zf(expand_privkey)(expanded_key, f, g, F, G, logn_keygen, tt_sign);
+
     
     for(unsigned int n1=0; n1<n_rows; ++n1) 
     {
@@ -1238,7 +1287,6 @@ int main()
         ::memset(ID,0x00,N_max_id_words*16);
         ::memset(KE,0x00,EVP_MAX_BLOCK_LENGTH);
         ::memset(KE_temp,0x00,16);
-        ::memset(R,0x00,N_max_id_words*16);
         ::memset(EC,0x00,N_max_id_words*16);
 
         
@@ -1282,8 +1330,6 @@ int main()
                 printf("Error in key generation\n");
                 exit(1);
             }
-            // while(!RAND_bytes(iv_ks,sizeof(iv_ks)));
-
 
             w_local = W;
             ke_temp_local = KE_temp;
@@ -1301,125 +1347,50 @@ int main()
         } r_xw;
         TEMPALLOC inner_shake256_context sc_xw;
 
-        inner_shake256_init(&sc_xw); 		                            //Initialises the array A to all 0
-        inner_shake256_inject(&sc_xw,W, 16);	// injects msg to context sc
+        inner_shake256_init(&sc_xw); 		    
+        inner_shake256_inject(&sc_xw,W, 16);	
         inner_shake256_flip(&sc_xw);
-        // Zf(hash_to_point_vartime_check1)(&sc_xw, r_xw.hm_xw, 9);
         Zf(hash_to_point_vartime)(&sc_xw, r_xw.hm_xw, 9);
 
-        uint32_t xw[512];
+        uint16_t xw[512];
+        size_t n_xw = (size_t)1 << 9;
+    
         
         for(int i=0; i<512; i++){
-            xw[i] = (r_xw.hm_xw[i] << 16) % q_l;
+            xw[i] = (r_xw.hm_xw[i] << 10) % q_l;
         }
-        
 
-        //Generating Public key, Private Key and Signature
+        ::memcpy(xw, r_xw.hm_xw, n_xw * sizeof(*xw));
+	    Zf(to_ntt_monty)(xw, 9);
 
-        // Computing randomness r to pass to keygen algorithm //
 
-        // (append w || counter)
-        wc_local = WC;
-        for(int nword=0; nword<n_row_ids; ++nword)
-        {
-            ::memcpy(wc_local,W,16);
-            wc_local += 16;
-        }
-        wc_local = WC;
         
         
-        //  PRF to compute r  //    
-         unsigned int count_wc = 1;
-        unsigned int count_wc_local = 0;
-        r_local = R;
-        wc_local = WC;
-        unsigned char pt[16];
+        // Generate random mask for each keyword
+        w_local = W;
+        unsigned char r[16];
         for(unsigned int nword=0; nword<n_row_ids; nword++)
         {
-            count_wc_local = count_wc;
-            *(wc_local+0) = count_wc_local & 0xFF;
-            count_wc_local >>= 8;
-            *(wc_local+1) = count_wc_local & 0xFF;
-            count_wc++;
-
-
-            int kr = encrypt(wc_local, sizeof(wc_local)/sizeof(wc_local[0]), aad, sizeof(aad), KZ1, iv_kz, r_local, tag_kz);
-            kr_enc_vec.push_back(kr);
-            
-            wc_local += 16;
-            r_local += 16;
+            int kr = encrypt(w_local, sizeof(w_local)/sizeof(w_local[0]), aad, sizeof(aad), KZ1, iv_kz, r, tag_kz);
         }
-        r_local = R;
-        wc_local = WC;
+        
+        uint64_t temp = r;
+        memcpy(&temp, r, sizeof(uint64_t));
     
+        srand(temp);
+        uint16_t mask = (rand()%q_l);
+
+        uint16_t inv_mask = mod_inverse(mask,q_l);
+
+        
 
 
-        // For Key and Signature generation //
         xid_local = XID;
         yid_local = YID;
-        r_local = R;
         id_local = ID;
         xtag_local = XTAG;
         for(unsigned int nword=0; nword<n_row_ids; nword++)
         {
-            //  Key Generation  //
-
-            unsigned char seed[16];
-            size_t n_keygen;
-            size_t tlen_keygen = 90112;
-            size_t tlen_sign = 178176;
-            unsigned logn_keygen = 9;
-            int8_t *f, *g, *F, *G;
-            uint16_t *h, *hm, *h2, *hm2, *h_mont;
-            int16_t *sig_keygen, *s1_keygen;
-            uint8_t *tt_keygen, *tt_sign, *temp_sign;
-            inner_shake256_context sc_keygen;
-            fpr *expanded_key;             
-    
-            
-            std::memcpy(seed,r_local,16);
-            inner_shake256_init(&sc_keygen);
-            inner_shake256_inject(&sc_keygen, seed, sizeof(seed));
-            inner_shake256_flip(&sc_keygen);
-           
-
-            temp_sign = xmalloc(tlen_sign);
-            h_mont = (uint16_t *)temp_sign;
-            n_keygen = (size_t)1 << logn_keygen;
-    
-            f = xmalloc(tlen_keygen);
-            g = f + n_keygen;
-            F = g + n_keygen;
-            G = F + n_keygen;
-            h = (uint16_t *)(G + n_keygen);
-            h2 = h + n_keygen;
-	        hm = h2 + n_keygen;
-            sig_keygen = (int16_t *)(hm + n_keygen);
-            s1_keygen = sig_keygen + n_keygen;
-            tt_keygen = (uint8_t *)(s1_keygen + n_keygen);
-            tt_sign = (uint8_t *)(s1_keygen + n_keygen);
-            if (logn_keygen == 1) {
-                tt_keygen += 4;
-                tt_sign += 4;
-            }
-            for (int i = 0; i < 12; i ++) {
-                Zf(keygen)(&sc_keygen, f, g, F, G, h, logn_keygen, tt_keygen);
-            }
-    
-            
-            // Signature Generation //
-
-            //Public key h in NTT-Montgomery Form
-            ::memcpy(h_mont, h, n_keygen * sizeof *h_mont);
-	        Zf(to_ntt_monty)(h_mont, logn_keygen);
-  
-            
-            //Expanded private key for NTT operations
-            expanded_key = (fpr *)tt_sign;
-            tt_sign = (uint8_t *)expanded_key + (8 * logn_keygen + 40) * n_keygen;
-            Zf(expand_privkey)(expanded_key, f, g, F, G, logn_keygen, tt_sign);
- 
-
             unsigned char array_xid[16];
             inner_shake256_context sc_xid1;
             size_t tlen_xid1 = 90112;
@@ -1440,21 +1411,15 @@ int main()
             
 
             
-            // Signature Computation --
-            //Compute a signature over the provided hashed message sc_xid; the signature value is one short vector.
-            //On successful output, the start of the tt_sign buffer contains the s1 vector (int16_t elements).
-            //The minimal size (in bytes) of tt_sign is 48*2^logn bytes. 
-
-        
+            // Signature Computation
             Zf(sign_tree)(sig_keygen, &sc_xid1, expanded_key, hm_xid1, logn_keygen, tt_sign);
             
 
             //Signature Verification
-            if (!Zf(verify_raw)(hm_xid1, sig_keygen, h_mont, 9, tt_sign)){
-                fprintf(stderr, "self signature (dyn) not verified\n");
-                exit(EXIT_FAILURE);
-		    }   
-
+            // if (!Zf(verify_raw)(hm_xid1, sig_keygen, h_mont, 9, tt_sign)){
+            //     fprintf(stderr, "self signature (dyn) not verified\n");
+            //     exit(EXIT_FAILURE);
+		    // }   
 
 
             size_t n = (size_t)1 << 9;
@@ -1471,10 +1436,15 @@ int main()
                 tt_s2[u] = (uint16_t)w;
             }
 
+            uint16_t yid_temp[512];
+
             for(int i = 0; i < 512; i++){
                 tt_s2_backup[i] = tt_s2[i];
-                yid_local[i] = tt_s2[i];
+                // yid_local[i] = tt_s2[i];
+                yid_temp[i] = tt_s2[i];
+                yid_local[i] = (yid_temp[i] * inv_mask) %p_1;
             }
+
 
             mq_NTT(tt_s2, 9);
             mq_poly_montymul_ntt(tt_s2, h_mont, 9); 
@@ -1488,29 +1458,31 @@ int main()
 
             mq_poly_sub(xid_local, tt_s1, 9);
 
-            int32_t xtag[512];
 
-            for(int i = 0; i < 512; i++){
-                xtag[i] = (xid_local[i] * xw[i])%q_l;
+            // xtag mod p1
+            mq_NTT(xid_local, 9);
+            mq_poly_montymul_ntt(xid_local, xw, 9);
+            mq_iNTT(xid_local, 9);
+
+            //xtag mod q_ntru
+             for(int i = 0; i < 512; i++){
+                xtag_local[i] = (xid_local[i] << 12) % q_ntru;
             }
 
+            for(int i = 0; i < 512; i++){
+                xtag_local[i] = xid_local[i] % p;
+            }
 
-            for(int k=0; k<512; k++){
-                xtag_local[k] = floor(xtag[k] * p/p_1);
-                xtag_local[k] = xtag_local[k] % p;
-            }   
 
             yid_local += N_l;
             xid_local += N_l;
             xtag_local += N_l;
             
             id_local += 16;
-            r_local += 16;
         
         }
         xid_local = XID;
         yid_local = YID;
-        r_local = R;
         id_local = ID;
         xtag_local = XTAG;
 
@@ -1522,8 +1494,7 @@ int main()
         {
             printf("Error in key generation\n");
             exit(1);
-        }
-       
+        } 
         
         id_local = ID;
         ec_local = EC;
@@ -1572,28 +1543,33 @@ int main()
             unsigned char xtag_char[2*N_l];
             ::memset(xtag_char,0x00,2*N_l);
 
+
             unsigned char *xtag_char_local = xtag_char;
             for(int k=0; k<N_l; k++){
                 
                 xtag_char[2*k] = static_cast<unsigned char>(xtag_local[k] & 0xFF);         
-                xtag_char[2*k + 1] = static_cast<unsigned char>((xtag_local[k] >> 8) & 0xFF); 
-
-                    
-                
+                xtag_char[2*k + 1] = static_cast<unsigned char>((xtag_local[k] >> 8) & 0xFF);    
             }
+
             xtag_char_local = xtag_char;
 
 
             BLOOM_HASH(xtag_char,bhash);
-        
+
+
             for(int j=0;j<N_HASH;++j){
                 bf_indices[j] = BFIdxConv(bhash+(64*j),N_BF_BITS);
+                // bf_indices[j] = BFIdxConv(bhash+(2*j),N_BF_BITS);
+                
             }
 
             BloomFilter_Set(BF, bf_indices);
 
+            cout << endl;
             xtag_local += N_l;
         }
+
+        cout << endl;
         
         xtag_local = XTAG;
         

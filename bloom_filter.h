@@ -6,7 +6,7 @@
 #include "size_parameters.h"
 #include "utils.h"
 
-#define N_HASH 8
+#define N_HASH 1                    //Equal to N_Threads
 #define MAX_BF_BIN_SIZE 64
 #define N_BF_BITS 6
 

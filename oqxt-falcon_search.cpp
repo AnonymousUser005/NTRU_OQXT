@@ -287,8 +287,8 @@ static const uint16_t iGMb[] = {
 
 
 
-string rawdb_file = "widxdb_small2.csv";
-string eidxdb_file = "eidxdb_small2.csv";
+string rawdb_file = "RawDB_test.csv";
+string eidxdb_file = "EDB_test.csv";
 string bloomfilter_file = "bloom_filter.dat";
 
 
@@ -296,16 +296,26 @@ unsigned char **BF;
 
 unsigned char *UIDX;
 
+//db6k.dat
+// int N_keywords = 6043;
+// int N_max_ids = 9690;
+// int N_row_ids = N_max_ids;
+// int N_words = N_keywords;
+// int N_max_id_words = 1809;
+// int N_kw_id_max = 80901;
 
+
+//RawDB_test.csv
 int N_keywords = 5;
 int N_max_ids = 37;
 int N_row_ids = N_max_ids;
 int N_words = N_keywords;
-int N_kw_id_pairs = 42;            
+int N_kw_id_pairs = 42;             
 int N_max_id_words = N_kw_id_pairs;
-
-
 int N_threads = 1;
+
+
+
 
 int sym_block_size = N_threads*16;
 int hash_block_size = N_threads*64;
@@ -315,7 +325,7 @@ int bhash_in_block_size = N_threads*40;
 
 
 //IVs and Keys for AES-256 GCM encryption
-unsigned char iv_ki[16], iv_r[16], iv_ke[16];// iv_kz[16], iv_kx[16], iv_stag[16];
+unsigned char iv_ki[16], iv_r[16], iv_ke[16];
 unsigned char tag_r[100], tag_ec[100], tag_kz[100], tag_ks[100], tag_ki[100], tag_kx[100], tag_kt[100],tag_stag[100]; 
 unsigned char aad[16]="00000002";
 int ke, kw, ka, kec, kt, k_stag, k_stag_query, k_stag_TSetRetrieve;
@@ -832,6 +842,12 @@ int TSet_Retrieve(unsigned char *stag,unsigned char *tset_row, int *n_ids_tset)
     unsigned char *TV;
     
     int datasize = (2*N_l)+16;
+
+    int N_words = 0;
+    unsigned int N_max_id_words = 0;
+
+    N_words = (N_max_ids/N_threads) + ((N_max_ids%N_threads==0)?0:1);
+    N_max_id_words = N_words * N_threads;
     
     stagi = new unsigned char[16*N_max_id_words];
     stago = new unsigned char[16*N_max_id_words];
@@ -931,7 +947,6 @@ int TSet_Retrieve(unsigned char *stag,unsigned char *tset_row, int *n_ids_tset)
     }
     stagi_local = stagi;
     hashin_local = hashin;
-
   
 
     //Compute Hash
@@ -959,7 +974,7 @@ int TSet_Retrieve(unsigned char *stag,unsigned char *tset_row, int *n_ids_tset)
     local_t_jidx = T_JIDX;
     local_t_lbl = T_LBL;
 
-    
+
     while(!BETA){
 
         local_hashout_word = hashout_local;
@@ -985,7 +1000,7 @@ int TSet_Retrieve(unsigned char *stag,unsigned char *tset_row, int *n_ids_tset)
             local_t_lbl += 12;
             hashout_local +=64;
         }
-        
+
         MGDB_QUERY(local_t_res,local_t_bidx_word,local_t_jidx_word,local_t_lbl_word);
 
     
@@ -1011,9 +1026,24 @@ int TSet_Retrieve(unsigned char *stag,unsigned char *tset_row, int *n_ids_tset)
     
 
     *n_ids_tset = rcnt;
+    
 
 
     ::memcpy(tset_row,TV,datasize*rcnt);
+
+
+    delete [] stagi;
+    delete [] stago;
+    delete [] hashin;
+    delete [] hashout;
+    delete [] TV;
+
+    delete [] FreeB;
+
+    delete [] T_RES;
+    delete [] T_BIDX;
+    delete [] T_JIDX;
+    delete [] T_LBL;
     
    
     return 0;
@@ -1062,22 +1092,6 @@ unsigned int BFIdxConv(unsigned char *hex_arr,unsigned int n_bits)
 }
 
 
-static void
-mk_rand_poly_oqxt(prng *p, fpr *f, unsigned logn)
-{
-	size_t u, n;
-
-	n = (size_t)1 << logn;
-	for (u = 0; u < n; u ++) {
-		int32_t x;
-		
-		x = prng_get_u8(p);
-		x = (x << 8) + prng_get_u8(p);
-		x &= 0x3FF;
-		f[u] = fpr_of(x - 512);
-	}
-}
-
 
 int EDB_Search(unsigned char *query_str, int NWords)   
 {
@@ -1091,7 +1105,6 @@ int EDB_Search(unsigned char *query_str, int NWords)
     unsigned char *W;
     unsigned char *ID;
     unsigned char *WC;
-    unsigned char *R;
     unsigned char *EC;
     unsigned char ECE[16];
 
@@ -1102,7 +1115,7 @@ int EDB_Search(unsigned char *query_str, int NWords)
     int16_t *XToken;    
     int16_t *XTAG;    
     
-   int datasize = (2*N_l)+16;
+    int datasize = (2*N_l)+16;
 
     stag = new unsigned char[16*N_max_id_words];
     tset_row = new unsigned char[datasize*N_max_id_words];
@@ -1111,7 +1124,6 @@ int EDB_Search(unsigned char *query_str, int NWords)
     W = new unsigned char[16*strlen((char *)query_str)];                //Holds the keyword
     ID = new unsigned char[16*N_max_id_words];                          //Maximum number of IDs in a row
     WC = new unsigned char[16*N_max_id_words];                          //IDs with counter value(for computing randomness R)
-    R = new unsigned char[N_max_id_words*16];                           //Random value for generating trapdoor matrix -- used in generating A
     EC = new unsigned char[16*N_max_id_words];                           //Encrypted IDs
     UIDX = new unsigned char[16*N_max_ids];
 
@@ -1150,11 +1162,11 @@ int EDB_Search(unsigned char *query_str, int NWords)
         bf_n_indices[i] = new unsigned int [NWords];
     }
 
-    BF = new unsigned char* [N_HASH];
-    for(unsigned int k=0;k<N_HASH;++k){
-        BF[k] = new unsigned char [MAX_BF_BIN_SIZE];
-        ::memset(BF[k],0x00,MAX_BF_BIN_SIZE);
-    }
+    // BF = new unsigned char* [N_HASH];
+    // for(unsigned int k=0;k<N_HASH;++k){
+    //     BF[k] = new unsigned char [MAX_BF_BIN_SIZE];
+    //     ::memset(BF[k],0x00,MAX_BF_BIN_SIZE);
+    // }
 
 
 
@@ -1168,7 +1180,6 @@ int EDB_Search(unsigned char *query_str, int NWords)
     ::memset(XTAG,0x00,N_max_id_words*N_l);
    
     ::memset(WC,0x00,N_max_id_words*16);
-    ::memset(R,0x00,N_max_id_words*16);
     ::memset(EC,0x00,N_max_id_words*16);
     ::memset(bhash,0x00,bhash_block_size);
 
@@ -1181,10 +1192,8 @@ int EDB_Search(unsigned char *query_str, int NWords)
 
     
     unsigned char *id_local = ID;
-    unsigned char *r_local = R;
     unsigned char *wc_local = WC;
     unsigned char *w_local = W;
-
     unsigned char *ec_local = EC;
     
     int16_t *xtoken_local = XToken;
@@ -1217,39 +1226,20 @@ int EDB_Search(unsigned char *query_str, int NWords)
     auto start_time = std::chrono::high_resolution_clock::now();
 
     
-
-    /* Computing randomness r to pass to keygen algorithm */
-
-    for(int i=0; i<n_ids_tset; ++i)
-    {
-        ::memcpy(WC+(i*16),Q1,16);
-    }
-    wc_local = WC;
-    
-    /* PRF to compute r  */     
-    unsigned int count_wc = 1;
-    unsigned int count_wc_local = 0;
-    r_local = R;
-    wc_local = WC;
-    unsigned char pt[16];
+    // Generate random mask for each keyword
+    unsigned char r[16];
     for(unsigned int nword=0; nword<n_ids_tset; nword++)
     {
-        count_wc_local = count_wc;
-        *(wc_local+0) = count_wc_local & 0xFF;
-        count_wc_local >>= 8;
-        *(wc_local+1) = count_wc_local & 0xFF;
-        count_wc++;
-
-
-        int kr = encrypt(wc_local, sizeof(wc_local)/sizeof(wc_local[0]), aad, sizeof(aad), KZ1, iv_kz, r_local, tag_kz);
-        kr_enc_vec.push_back(kr);
-        
-        wc_local += 16;
-        r_local += 16;
+        int kr = encrypt(Q1, sizeof(Q1)/sizeof(Q1[0]), aad, sizeof(aad), KZ1, iv_kz, r, tag_kz);
     }
-    r_local = R;
-    wc_local = WC;
+
+    uint64_t temp = r;
+    memcpy(&temp, r, sizeof(uint64_t));
+
+    srand(temp);
+    uint16_t mask = (rand()%q_l);
     
+
     
     tset_row_local = tset_row;
     tset_yid_local = tset_yid;
@@ -1278,70 +1268,68 @@ int EDB_Search(unsigned char *query_str, int NWords)
     yid_local = YID;          
     tset_yid_local = tset_yid; 
 
+    
+    /* Key Generation */
+
+    unsigned char seed[16] = {0x56,0x37,0xca,0x94,0xd5,0xe0,0xad,0x62,0x73,0x7c,0xba,0x48,0x8d,0x2d,0x4d,0xde};
+    size_t n_keygen;
+    size_t tlen_keygen = 90112;
+    size_t tlen_sign = 178176;
+    unsigned logn_keygen = 9;
+    int8_t *f, *g, *F, *G;
+    uint16_t *h, *hm, *h2, *hm2, *h_mont;
+    int16_t *sig_keygen, *s1_keygen;
+    uint8_t *tt_keygen, *tt_sign, *temp_sign;
+    inner_shake256_context sc_keygen;
+    fpr *expanded_key;             
+
+    
+    // std::memcpy(seed,r_local,16);
+    inner_shake256_init(&sc_keygen);
+    inner_shake256_inject(&sc_keygen, seed, sizeof(seed));
+    inner_shake256_flip(&sc_keygen);
+    
+
+    temp_sign = xmalloc(tlen_sign);
+    h_mont = (uint16_t *)temp_sign;
+    n_keygen = (size_t)1 << logn_keygen;
+
+    f = xmalloc(tlen_keygen);
+    g = f + n_keygen;
+    F = g + n_keygen;
+    G = F + n_keygen;
+    h = (uint16_t *)(G + n_keygen);
+    h2 = h + n_keygen;
+    hm = h2 + n_keygen;
+    sig_keygen = (int16_t *)(hm + n_keygen);
+    s1_keygen = sig_keygen + n_keygen;
+    tt_keygen = (uint8_t *)(s1_keygen + n_keygen);
+    tt_sign = (uint8_t *)(s1_keygen + n_keygen);
+    if (logn_keygen == 1) {
+        tt_keygen += 4;
+        tt_sign += 4;
+    }
+    for (int i = 0; i < 12; i ++) {
+        Zf(keygen)(&sc_keygen, f, g, F, G, h, logn_keygen, tt_keygen);
+    }
+
+    // Public key h in NTT-Montgomery Form
+    ::memcpy(h_mont, h, n_keygen * sizeof *h_mont);
+    Zf(to_ntt_monty)(h_mont, logn_keygen);
+
 
     
     yid_local = YID;
-    r_local = R;
     id_local = ID;          
     for(int i=0;i<n_ids_tset;++i)
     {
-
-        /* Key Generation */
-    
-        unsigned char seed[16];
-        size_t n_keygen;
-        size_t tlen_keygen = 90112;
-        size_t tlen_sign = 178176;
-        unsigned logn_keygen = 9;
-        int8_t *f, *g, *F, *G;
-        uint16_t *h, *hm, *h2, *hm2, *h_mont;
-        int16_t *sig_keygen, *s1_keygen;
-        uint8_t *tt_keygen, *tt_sign, *temp_sign;
-        inner_shake256_context sc_keygen;
-        fpr *expanded_key;             
-
-        
-        std::memcpy(seed,r_local,16);
-        inner_shake256_init(&sc_keygen);
-        inner_shake256_inject(&sc_keygen, seed, sizeof(seed));
-        inner_shake256_flip(&sc_keygen);
-        
-
-        temp_sign = xmalloc(tlen_sign);
-        h_mont = (uint16_t *)temp_sign;
-        n_keygen = (size_t)1 << logn_keygen;
-
-        f = xmalloc(tlen_keygen);
-        g = f + n_keygen;
-        F = g + n_keygen;
-        G = F + n_keygen;
-        h = (uint16_t *)(G + n_keygen);
-        h2 = h + n_keygen;
-        hm = h2 + n_keygen;
-        sig_keygen = (int16_t *)(hm + n_keygen);
-        s1_keygen = sig_keygen + n_keygen;
-        tt_keygen = (uint8_t *)(s1_keygen + n_keygen);
-        tt_sign = (uint8_t *)(s1_keygen + n_keygen);
-        if (logn_keygen == 1) {
-            tt_keygen += 4;
-            tt_sign += 4;
-        }
-        for (int i = 0; i < 12; i ++) {
-            Zf(keygen)(&sc_keygen, f, g, F, G, h, logn_keygen, tt_keygen);
-        }
-
-        // Public key h in NTT-Montgomery Form
-        ::memcpy(h_mont, h, n_keygen * sizeof *h_mont);
-        Zf(to_ntt_monty)(h_mont, logn_keygen);
-
-
         //Generate xtoken
         xtoken_local = XToken;
         w_local = W;
         for(unsigned int n1=0; n1<NWords; ++n1) // for every keyword
         {
             //Generate random polynomial wrt XW from Falcon specifications
-             TEMPALLOC union {
+            TEMPALLOC union {
                 uint16_t hm_xw[512];
             } r_xw;
             TEMPALLOC inner_shake256_context sc_xw;
@@ -1351,45 +1339,62 @@ int EDB_Search(unsigned char *query_str, int NWords)
             inner_shake256_flip(&sc_xw);
             Zf(hash_to_point_vartime)(&sc_xw, r_xw.hm_xw, 9);
 
-            
-            uint32_t xw[512];
-            
+            uint16_t xw[512];
+            size_t n_xw = (size_t)1 << 9;
+                    
             for(int i=0; i<512; i++){
-                xw[i] = (r_xw.hm_xw[i] << 16) % q_l;
+                xw[i] = (r_xw.hm_xw[i] << 10) % q_l;
+            }
+
+            ::memcpy(xw, r_xw.hm_xw, n_xw * sizeof(*xw));
+            Zf(to_ntt_monty)(xw, 9);
+
+            
+            //Xtoken Computation
+            uint16_t h_temp[512];
+            for(int i=0; i<512;i++){
+                h_temp[i] = h[i];
             }
     
+            mq_NTT(h_temp, 9);
 
-            //Xtoken Computation
+            mq_poly_montymul_ntt(h_temp, xw, 9);
+            mq_iNTT(h_temp, 9);
+            Zf(to_ntt_monty)(h_temp, logn_keygen);
+            
+
             int32_t xtoken[512];
-
             for(int i = 0; i < 512; i++){
-                xtoken[i] = (h_mont[i] * xw[i]) % q_l;
+                xtoken[i] = (h[i] << 12) % q_ntru; 
+            }
+            
+            int16_t xtoken_lwr[512];
+            for(int i = 0; i < 512; i++){
+                xtoken_local[i] = h_temp[i] % p_1;
             }
 
-            for(int i = 0; i < 512; i++){
-                xtoken_local[i] = floor(xtoken[i] * p_1/q_l);
-                xtoken_local[i] = xtoken_local[i] % p_1;
-
-            }
 
             xtoken_local += N_l;
             w_local += 16;
         }
         xtoken_local = XToken;
-        r_local += 16;
 
 
         //  XTAG Computation  //
-
         ::memset(XTAG,0x00, N_max_id_words*N_l);
 
-        // Reduce yid elements modulo q ([0..q-1] range) used in multiplication with xtoken//
-        int16_t tt_yid[1024];
+        
+        int16_t tt_yid[512];
+        int16_t yid_temp[512];
         for (int u = 0; u < N_l; u ++) {
             uint32_t w;
             w = (uint32_t)yid_local[u];
             w += q_l & -(w >> 31);
-            tt_yid[u] = (uint16_t)w;
+            yid_temp[u] = (uint16_t)w;
+        }
+
+        for(int i=0; i<512; i++){
+            tt_yid[i] = (yid_temp[i] * mask) % p_1; 
         }
 
         if(NWords == 0){
@@ -1404,22 +1409,18 @@ int EDB_Search(unsigned char *query_str, int NWords)
             xtoken_local = XToken;
             for(unsigned int n1=0; n1<NWords; ++n1) 
             {
-                
+
                 mq_NTT(tt_yid, 9);
                 mq_poly_montymul_ntt(tt_yid, xtoken_local, 9);
                 mq_iNTT(tt_yid, 9);
 
-
                 int16_t xtag_temp[512];
                 ::memset(xtag_temp,0x00,512);
-                
-                for(int u=0; u<512; u++){
-                    xtag_temp[u] = floor(tt_yid[u] * p/p_1);
+
+                for(int i=0; i<512; i++){
+                    xtag_local[i] = tt_yid[i] % p;
                 }
-                
-                for(int k=0; k<N_l; k++){
-                    *(xtag_local+k) = xtag_temp[k]%p_1;
-                }
+
 
                 xtoken_local += N_l;
                 xtag_local += N_l;
@@ -1436,18 +1437,22 @@ int EDB_Search(unsigned char *query_str, int NWords)
                 unsigned char xtag_char[2*N_l];
                 ::memset(xtag_char,0x00,2*N_l);
 
+
                 unsigned char *xtag_char_local = xtag_char;
                 for(int k=0; k<N_l; k++){
                     xtag_char[2*k] = static_cast<unsigned char>(xtag_local[k] & 0xFF);          
                     xtag_char[2*k + 1] = static_cast<unsigned char>((xtag_local[k] >> 8) & 0xFF); 
 
                 }
+                
                 xtag_char_local = xtag_char;
 
                 BLOOM_HASH(xtag_char,bhash);
 
+
                 for(int j=0;j<N_HASH;++j){
                     bf_n_indices[j][i] = BFIdxConv(bhash+(64*j),N_BF_BITS);
+                    // bf_n_indices[j][i] = BFIdxConv(bhash+(2*j),N_BF_BITS);
                 }
 
                 xtag_local +=N_l;
@@ -1456,6 +1461,7 @@ int EDB_Search(unsigned char *query_str, int NWords)
             xtag_local = XTAG;
 
             BloomFilter_Match_N(BF, bf_n_indices, NWords, &idx_in_set);
+
 
             if(idx_in_set){
                 ::memcpy(ec_local,ECE,16);
@@ -1473,7 +1479,6 @@ int EDB_Search(unsigned char *query_str, int NWords)
     }
     yid_local = YID;
     ec_local = EC;
-    r_local = R;
     w_local = W;
 
     
@@ -1561,7 +1566,6 @@ int EDB_Search(unsigned char *query_str, int NWords)
 
 }   
 
-
 int main()
 {
     cout << "Starting program..." << endl;
@@ -1570,70 +1574,21 @@ int main()
     UIDX = new unsigned char[16*N_max_ids];
     ::memset(UIDX,0x00,16*N_max_ids);
     
-    
     std::vector<std::string> query;
 
     unsigned int n_keywords = 0;
-    unsigned int n_iterations = 1;//Number of text vectors to search
+    unsigned int n_iterations = 1;      //Number of text vectors to search
 
-    //----------------------------------------------------------------------------------------------
-    std::string kw_freq_file = "db_kw_freq.csv";
-    std::string res_query_file = "./results/res_query.csv";
-    std::string res_id_file = "./results/res_id.csv";
-    std::string res_time_file = "./results/res_time.csv";
-
-    std::ifstream kw_freq_file_handle(kw_freq_file);
-
-    std::ofstream res_query_file_handle(res_query_file);
-    std::ofstream res_id_file_handle(res_id_file);
-    std::ofstream res_time_file_handle(res_time_file);
-
-    //----------------------------------------------------------------------------------------------
     std::vector<std::string> raw_row_data;
-    std::string widxdb_row;
-
-    std::stringstream ss;
-    std::string kw;
-    std::string kw_freq_str;
-
-    //----------------------------------------------------------------------------------------------
-
-    kw_freq_file_handle.open(kw_freq_file,std::ios_base::in);
-    widxdb_row.clear();
-    raw_row_data.clear();
-
-    while(getline(kw_freq_file_handle,widxdb_row)){
-        raw_row_data.push_back(widxdb_row);
-        widxdb_row.clear();
-        n_keywords++;
-    }
-
-    kw_freq_file_handle.close();
-
-    for(auto v: raw_row_data){
-        ss.clear();
-        ss << v;
-        
-        kw.clear();
-        kw_freq_str.clear();
-
-        std::getline(ss,kw,',');
-        std::getline(ss,kw_freq_str,',');
-        
-        kw_frequency[kw] = std::stoi(kw_freq_str);
-        keyword_vec.push_back(kw);
-    }
-
-    //----------------------------------------------------------------------------------------------
-
+    
     srand(time(NULL));
 
-    //----------------------------------------------------------------------------------------------
-    //Initialise
+   
     Sys_Init();
     
     std::cout << "Reading Bloom Filter from disk..." << std::endl;
     BloomFilter_ReadBFfromFile(bloomfilter_file, BF); //Load bloom filter from file
+  
     
     auto search_start_time = std::chrono::high_resolution_clock::now();
     auto search_stop_time = std::chrono::high_resolution_clock::now();
@@ -1641,7 +1596,7 @@ int main()
 
     unsigned int kw_idx = 0;
     unsigned int kw_freq = 0;
-    unsigned int n_q_kw = 2;//Number of keywords in a query to search for
+    unsigned int n_q_kw = 2;           //Number of keywords in a query to search for
 
     std::vector<unsigned int> idx_vec;
     std::map<unsigned int,unsigned int> freq_map;
@@ -1652,39 +1607,13 @@ int main()
     unsigned int nm = 0;
     unsigned char row_vec[2048]; //16 bytes * Number of keywords in the query
     int n_vec = 0;
-    std::set<std::string> result_temp;
-
+ 
     for(unsigned int q_idx=0;q_idx<n_iterations;++q_idx)
     {
         query.clear();
-        freq_map.clear();
 
-        for(unsigned int i=0;i<n_q_kw;++i){
-            kw_idx = rand() % n_keywords;
-            kw_freq = kw_frequency[keyword_vec[kw_idx]];
-            freq_map[kw_freq] = kw_idx;
-            cout << "kw_idx = " << kw_idx << std::endl;
-            cout << "kw_freq = " << kw_freq << std::endl;
-            cout << "freq_map[kw_freq] = " << freq_map[kw_freq] << std::endl;
-
-        }
-
-        for(auto v:freq_map){
-            query.push_back(keyword_vec[v.second]);
-        }
-
-       
-        cout << "query = ";
-
-         for(auto v:query){
-            std::cout << v << std::endl;
-        }
-
-        if(query.size() < n_q_kw) continue;
-
-
-        // query.push_back("00000000");
-        // query.push_back("00000001");
+        query.push_back("00000000");
+        query.push_back("00000001");
 
         std::cout << "--------------------------------------------------" << std::endl;
         std::cout << "Searching for  ";
@@ -1692,11 +1621,7 @@ int main()
         for(auto v:query){
             std::cout << v << " ";
         }
-
-        std::cout << " with frequency ";
-        for(auto v:query){
-            std::cout << kw_frequency[v] << " ";
-        }
+        cout << endl;
 
         ::memset(row_vec,0x00,2048);
         n_vec = 0;
@@ -1705,15 +1630,9 @@ int main()
             StrToHexBVec(row_vec+(16*n_vec),rs.data());//Defined in mainwindow.cpp file
             n_vec++;
         } 
-
-        std::cout << n_vec << std::endl;
         
         ::memset(UIDX,0x00,16*N_max_ids);
-        result_temp.clear();
-
         
-
-        //-------------------------------------------------------------------------------
         search_start_time = std::chrono::high_resolution_clock::now();
 
         nm = EDB_Search(row_vec,(n_vec-1));
@@ -1721,46 +1640,216 @@ int main()
         search_stop_time = std::chrono::high_resolution_clock::now();
         search_time_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(search_stop_time - search_start_time).count();
 
-        std::cout << "Search time = " << search_time_elapsed << std::endl;
+        std::cout << "Search time = " << search_time_elapsed << " micro-seconds" << std::endl;
 
-        for(unsigned int k=0;k<nm;++k){
-            result_temp.insert(DB_HexToStr_N(UIDX+(16*k),16));
-        }
-
-
-
-        for(auto v:result_temp){
-            res_id_file_handle << v.substr(0,8) << ",";
-        }
-        res_id_file_handle << std::endl;
-
-        for(auto v:query){
-            res_query_file_handle << v << ",";
-        }
-
-        for(auto v:query){
-            res_query_file_handle << kw_frequency[v] << ",";
-        }
-
-        res_query_file_handle << result_temp.size() << "," << std::endl;
-        res_time_file_handle << search_time_elapsed << "," << std::endl;
-
-        result_temp.clear();
         query.clear();
     }
 
-    res_query_file_handle.close();
-    res_id_file_handle.close();
-    res_time_file_handle.close();
-
-    //----------------------------------------------------------------------------------------------
-    // Thread Release
     Sys_Clear();
-    delete [] UIDX;
-    //---------------------------------------------------------------------------------------------
-
-    cout << "Program finished!" << endl;
-
 
     return 0;
 }
+
+
+// int main()
+// {
+//     cout << "Starting program..." << endl;
+
+
+//     UIDX = new unsigned char[16*N_max_ids];
+//     ::memset(UIDX,0x00,16*N_max_ids);
+    
+    
+//     std::vector<std::string> query;
+
+//     unsigned int n_keywords = 0;
+//     unsigned int n_iterations = 1;//Number of text vectors to search
+
+//     //----------------------------------------------------------------------------------------------
+//     std::string kw_freq_file = "db_kw_freq.csv";
+//     std::string res_query_file = "./results/res_query.csv";
+//     std::string res_id_file = "./results/res_id.csv";
+//     std::string res_time_file = "./results/res_time.csv";
+
+//     std::ifstream kw_freq_file_handle(kw_freq_file);
+
+//     std::ofstream res_query_file_handle(res_query_file);
+//     std::ofstream res_id_file_handle(res_id_file);
+//     std::ofstream res_time_file_handle(res_time_file);
+
+//     //----------------------------------------------------------------------------------------------
+//     std::vector<std::string> raw_row_data;
+//     std::string widxdb_row;
+
+//     std::stringstream ss;
+//     std::string kw;
+//     std::string kw_freq_str;
+
+//     //----------------------------------------------------------------------------------------------
+
+//     kw_freq_file_handle.open(kw_freq_file,std::ios_base::in);
+//     widxdb_row.clear();
+//     raw_row_data.clear();
+
+//     while(getline(kw_freq_file_handle,widxdb_row)){
+//         raw_row_data.push_back(widxdb_row);
+//         widxdb_row.clear();
+//         n_keywords++;
+//     }
+
+//     kw_freq_file_handle.close();
+
+//     for(auto v: raw_row_data){
+//         ss.clear();
+//         ss << v;
+        
+//         kw.clear();
+//         kw_freq_str.clear();
+
+//         std::getline(ss,kw,',');
+//         std::getline(ss,kw_freq_str,',');
+        
+//         kw_frequency[kw] = std::stoi(kw_freq_str);
+//         keyword_vec.push_back(kw);
+//     }
+
+//     //----------------------------------------------------------------------------------------------
+
+//     srand(time(NULL));
+
+//     //----------------------------------------------------------------------------------------------
+//     //Initialise
+//     Sys_Init();
+    
+//     std::cout << "Reading Bloom Filter from disk..." << std::endl;
+//     BloomFilter_ReadBFfromFile(bloomfilter_file, BF); //Load bloom filter from file
+    
+//     auto search_start_time = std::chrono::high_resolution_clock::now();
+//     auto search_stop_time = std::chrono::high_resolution_clock::now();
+//     auto search_time_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(search_stop_time - search_start_time).count();
+
+//     unsigned int kw_idx = 0;
+//     unsigned int kw_freq = 0;
+//     unsigned int n_q_kw = 2;//Number of keywords in a query to search for
+
+//     std::vector<unsigned int> idx_vec;
+//     std::map<unsigned int,unsigned int> freq_map;
+//     std::vector<unsigned int> idx_sorted;
+//     std::vector<unsigned int> freq_sorted;
+//     std::vector<std::string> kw_sorted;
+
+//     unsigned int nm = 0;
+//     unsigned char row_vec[2048]; //16 bytes * Number of keywords in the query
+//     int n_vec = 0;
+//     std::set<std::string> result_temp;
+
+//     for(unsigned int q_idx=0;q_idx<n_iterations;++q_idx)
+//     {
+//         query.clear();
+//         freq_map.clear();
+
+//         for(unsigned int i=0;i<n_q_kw;++i){
+//             kw_idx = rand() % n_keywords;
+//             kw_freq = kw_frequency[keyword_vec[kw_idx]];
+//             freq_map[kw_freq] = kw_idx;
+//             cout << "kw_idx = " << kw_idx << std::endl;
+//             cout << "kw_freq = " << kw_freq << std::endl;
+//             cout << "freq_map[kw_freq] = " << freq_map[kw_freq] << std::endl;
+
+//         }
+
+//         for(auto v:freq_map){
+//             query.push_back(keyword_vec[v.second]);
+//         }
+
+       
+//         cout << "query = ";
+
+//          for(auto v:query){
+//             std::cout << v << std::endl;
+//         }
+
+//         if(query.size() < n_q_kw) continue;
+
+
+//         // query.push_back("00000000");
+//         // query.push_back("00000001");
+
+//         std::cout << "--------------------------------------------------" << std::endl;
+//         std::cout << "Searching for  ";
+        
+//         for(auto v:query){
+//             std::cout << v << " ";
+//         }
+
+//         std::cout << " with frequency ";
+//         for(auto v:query){
+//             std::cout << kw_frequency[v] << " ";
+//         }
+
+//         ::memset(row_vec,0x00,2048);
+//         n_vec = 0;
+
+//         for(auto rs:query){
+//             StrToHexBVec(row_vec+(16*n_vec),rs.data());//Defined in mainwindow.cpp file
+//             n_vec++;
+//         } 
+
+//         std::cout << n_vec << std::endl;
+        
+//         ::memset(UIDX,0x00,16*N_max_ids);
+//         result_temp.clear();
+
+        
+
+//         //-------------------------------------------------------------------------------
+//         search_start_time = std::chrono::high_resolution_clock::now();
+
+//         nm = EDB_Search(row_vec,(n_vec-1));
+
+//         search_stop_time = std::chrono::high_resolution_clock::now();
+//         search_time_elapsed = std::chrono::duration_cast<std::chrono::microseconds>(search_stop_time - search_start_time).count();
+
+//         std::cout << "Search time = " << search_time_elapsed << std::endl;
+
+//         for(unsigned int k=0;k<nm;++k){
+//             result_temp.insert(DB_HexToStr_N(UIDX+(16*k),16));
+//         }
+
+
+
+//         for(auto v:result_temp){
+//             res_id_file_handle << v.substr(0,8) << ",";
+//         }
+//         res_id_file_handle << std::endl;
+
+//         for(auto v:query){
+//             res_query_file_handle << v << ",";
+//         }
+
+//         for(auto v:query){
+//             res_query_file_handle << kw_frequency[v] << ",";
+//         }
+
+//         res_query_file_handle << result_temp.size() << "," << std::endl;
+//         res_time_file_handle << search_time_elapsed << "," << std::endl;
+
+//         result_temp.clear();
+//         query.clear();
+//     }
+
+//     res_query_file_handle.close();
+//     res_id_file_handle.close();
+//     res_time_file_handle.close();
+
+//     //----------------------------------------------------------------------------------------------
+//     // Thread Release
+//     Sys_Clear();
+//     delete [] UIDX;
+//     //---------------------------------------------------------------------------------------------
+
+//     cout << "Program finished!" << endl;
+
+
+//     return 0;
+// }
